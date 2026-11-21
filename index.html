@@ -12,7 +12,7 @@
   :root {
     --bg: #0f1115; --panel: #161a21; --panel2: #1d222b; --line: #2b313c;
     --fg: #e6eaf0; --muted: #8b94a3; --faint: #636c7a; --accent: #7aa2ff;
-    --named: #3fb76b; --partial: #e0a33a; --ph: #4a5262;
+    --decomp: #3fb76b; --named: #8d7cf0; --partial: #e0a33a; --ph: #4a5262;
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
     color-scheme: dark;
@@ -21,13 +21,13 @@
     :root:not([data-theme="dark"]) {
       --bg: #f3f4f7; --panel: #ffffff; --panel2: #eceef3; --line: #d3d8e0;
       --fg: #1a1f28; --muted: #586172; --faint: #8a93a2; --accent: #2f5fd0;
-      --named: #2a9a55; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
+      --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
     }
   }
   :root[data-theme="light"] {
     --bg: #f3f4f7; --panel: #ffffff; --panel2: #eceef3; --line: #d3d8e0;
     --fg: #1a1f28; --muted: #586172; --faint: #8a93a2; --accent: #2f5fd0;
-    --named: #2a9a55; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
+    --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -133,7 +133,7 @@
 
   <details>
     <summary>How statuses are assigned</summary>
-    <p>Each function is classified from its current IDB name. Placeholder means the name is one of the auto-naming families and says nothing about what the function is. Partial means the owner (class or subsystem) is real but the method part is a slot number, helper tag or address. Named is everything else.</p>
+    <p>Decompiled means the function is rewritten as readable C/C++ in the decomp (listed in <code>decompiled.txt</code>). Every other function is classified from its current IDB name. Placeholder means the name is one of the auto-naming families and says nothing about what the function is. Partial means the owner (class or subsystem) is real but the method part is a slot number, helper tag or address. Named is everything else.</p>
     <div class="rules">placeholder = ^(Group[0-9A-F]{8}|Class8[0-9A-F]{7}|SharedVf\d+|Unreferenced|DataRef_|UsesStr_|Common_(util|shared|helper)|FnTable8|MultiRef|(Get|Set)(U|S|F)?(8|16|32|64)_[0-9A-F]+$|sub_|nullsub_)
 partial     = not placeholder, and matches (8[0-9A-F]{7}|_vf\d+|_Slot\d+|_(util|helper|shared|wrapper|callback)$)
 named       = everything else</div>
@@ -145,6 +145,7 @@ named       = everything else</div>
       <li>In IDA, open the Functions window (Shift+F3), click inside it, press Ctrl+A, then Ctrl+C.</li>
       <li>Paste anywhere on this page, drop a saved list onto the map, or use <em>Open function list…</em>. This only changes your own view.</li>
       <li>To update the hosted page for everyone, save the same text as <code>functions.txt</code> next to <code>index.html</code> and upload both.</li>
+      <li>For decomp progress, copy <code>decomp/progress/decompiled.txt</code> next to <code>index.html</code> as well.</li>
     </ol>
     <p>Accepted formats: IDA Functions-window copy (name, segment, start, length…), or JSON objects with <code>addr</code>, <code>name</code> and <code>size</code>.</p>
   </details>
@@ -176,6 +177,7 @@ named       = everything else</div>
   const PH = /^(Group[0-9A-F]{8}|Class8[0-9A-F]{7}|SharedVf\d+|Unreferenced|DataRef_|UsesStr_|Common_(util|shared|helper)|FnTable8|MultiRef|(Get|Set)(U|S|F)?(8|16|32|64)_[0-9A-F]+$|sub_|nullsub_)/;
   const PART = /(8[0-9A-F]{7}|_vf\d+|_Slot\d+|_(util|helper|shared|wrapper|callback)$)/;
   const STATUS = [
+    { key: "D", label: "Decompiled", token: "--decomp" },
     { key: "N", label: "Named", token: "--named" },
     { key: "P", label: "Partial", token: "--partial" },
     { key: "X", label: "Placeholder", token: "--ph" }
@@ -194,8 +196,24 @@ named       = everything else</div>
   let groupBy = "owner";
   let ROOT = null, stack = [], hidden = new Set();
   let rects = [], highlight = null, hoverRect = null;
+  let DECOMP = new Set();
 
-  const classify = n => PH.test(n) ? "X" : PART.test(n) ? "P" : "N";
+  const classifyName = n => PH.test(n) ? "X" : PART.test(n) ? "P" : "N";
+  const classify = f => DECOMP.has(f.addr) ? "D" : classifyName(f.name);
+
+  // decompiled.txt: one "0xADDRESS name" line per decompiled function.
+  function parseDecompiled(text) {
+    const set = new Set();
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.match(/^\s*(?:0x)?([0-9A-Fa-f]{8})\b/);
+      if (m) set.add(parseInt(m[1], 16));
+    }
+    return set;
+  }
+  const looksLikeDecompiledList = text => {
+    const lines = text.trim().split(/\r?\n/).filter(Boolean);
+    return lines.length > 0 && lines.every(l => /^\s*0x[0-9A-Fa-f]{8}\s+\S/.test(l));
+  };
 
   // ---------- parsing ----------
   function parseList(text) {
@@ -260,7 +278,7 @@ named       = everything else</div>
 
   function finalize(node) {
     if (!node.kids) return node;
-    node.v = 0; node.n = 0; node.c = { N: 0, P: 0, X: 0 }; node.b = { N: 0, P: 0, X: 0 };
+    node.v = 0; node.n = 0; node.c = { D: 0, N: 0, P: 0, X: 0 }; node.b = { D: 0, N: 0, P: 0, X: 0 };
     for (const k of node.kids) {
       k.parent = node; finalize(k);
       node.v += k.v;
@@ -415,7 +433,7 @@ named       = everything else</div>
   function pctStr(n, d) { return d ? (100 * n / d).toFixed(n / d < 0.01 ? 3 : 2) + "%" : "0%"; }
   function renderHeader() {
     const c = ROOT.c, b = ROOT.b, n = ROOT.n;
-    const totalBytes = b.N + b.P + b.X;
+    const totalBytes = b.D + b.N + b.P + b.X;
     const useBytes = MODE === "functions" && totalBytes > 0;
     const base = useBytes ? totalBytes : n;
     const val = s => useBytes ? b[s] : c[s];
@@ -428,7 +446,7 @@ named       = everything else</div>
       bar.appendChild(d);
     });
     $("summary").textContent = useBytes
-      ? `${fmt(n)} functions, ${fmt(totalBytes)} bytes. Named ${pctStr(b.N, totalBytes)} of the code, ${pctStr(c.N, n)} of functions.`
+      ? `${fmt(n)} functions, ${fmt(totalBytes)} bytes. Decompiled ${pctStr(b.D, totalBytes)} of the code (${fmt(c.D)} functions), named ${pctStr(b.D + b.N, totalBytes)}.`
       : `${fmt(n)} functions. Named ${pctStr(c.N, n)} of functions. Snapshot ${SNAPSHOT.date}.`;
     $("chips").innerHTML = STATUS.map(s => `
       <span class="chip"><span class="dot" style="background:var(${s.token})"></span>${s.label}
@@ -500,10 +518,10 @@ named       = everything else</div>
       html = `<b>${n.region}</b><div class="row">${fmt(n.count)} ${s.label.toLowerCase()} functions</div>
         <div class="row">Per-function boxes appear once a function list is loaded.</div>`;
     } else {
-      const bytes = n.b ? n.b.N + n.b.P + n.b.X : 0;
+      const bytes = n.b ? n.b.D + n.b.N + n.b.P + n.b.X : 0;
       html = `<b>${escapeHtml(n.range || n.name)}</b>
         <div class="row">${fmt(n.n)} functions${bytes ? " · " + fmt(bytes) + " bytes" : ""}</div>
-        <div class="row">named ${pctStr(n.c.N, n.n)} · partial ${pctStr(n.c.P, n.n)} · placeholder ${pctStr(n.c.X, n.n)}</div>`;
+        <div class="row">decompiled ${pctStr(n.c.D, n.n)} · named ${pctStr(n.c.N, n.n)} · partial ${pctStr(n.c.P, n.n)} · placeholder ${pctStr(n.c.X, n.n)}</div>`;
     }
     tip.innerHTML = html; tip.hidden = false;
     const tw = tip.offsetWidth, th = tip.offsetHeight;
@@ -594,7 +612,7 @@ named       = everything else</div>
   }
 
   function loadFunctions(list, note) {
-    list.forEach(f => f.s = classify(f.name));
+    list.forEach(f => f.s = classify(f));
     list.sort((a, b) => a.addr - b.addr);
     FUNCS = list; MODE = "functions";
     const n = $("notice");
@@ -602,7 +620,22 @@ named       = everything else</div>
     rebuild();
   }
 
+  function applyDecompiled(set) {
+    DECOMP = set;
+    if (MODE === "functions") {
+      FUNCS.forEach(f => f.s = classify(f));
+      rebuild();
+    }
+  }
+
   function tryText(text, label) {
+    if (looksLikeDecompiledList(text)) {
+      applyDecompiled(parseDecompiled(text));
+      $("notice").innerHTML = `<strong>Loaded ${fmt(DECOMP.size)} decompiled functions from ${escapeHtml(label)}.</strong> This view is local to your browser.` +
+        (MODE === "functions" ? "" : " Load a function list too to see them on the map.");
+      $("notice").hidden = false;
+      return;
+    }
     const list = parseList(text);
     if (list.length < 10) {
       $("notice").innerHTML = `<strong>That didn't look like a function list.</strong> Copy the IDA Functions window (Shift+F3, Ctrl+A, Ctrl+C) and paste it, or load a JSON list with addr, name and size.`;
@@ -650,10 +683,12 @@ named       = everything else</div>
   $("notice").hidden = false;
   resize();
   if (!local) {
-    fetch("functions.txt", { cache: "no-cache" })
-      .then(r => r.ok ? r.text() : Promise.reject(r.status))
-      .then(text => { const list = parseList(text); if (list.length >= 10) loadFunctions(list); })
-      .catch(() => { /* no hosted list yet: keep the snapshot view */ });
+    const getText = name => fetch(name, { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => "");
+    Promise.all([getText("functions.txt"), getText("decompiled.txt")]).then(([funcs, decomp]) => {
+      if (decomp) DECOMP = parseDecompiled(decomp);
+      const list = parseList(funcs);
+      if (list.length >= 10) loadFunctions(list);
+    });
   }
 })();
 </script>
