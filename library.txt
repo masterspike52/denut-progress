@@ -55,6 +55,7 @@ name x3daudio ^X3DAudio
 name xmv ^(WmvDec|WmaDec|Asf_|Brt[A-Z]|ColorConvert|Xmv|XMV)
 name xapi ^(Xapi|XFileCache|Lzx|Xam|Nt[A-Z]|Ke[A-Z]|Kf[A-Z]|Rtl[A-Z]|Ex[A-Z][a-z]|Ob[A-Z]|Mm[A-Z]|NetDll|XNet|XNotify|XMsg|Xex[A-Z]|XCompress|XContent|XUser|XOnline|XLive|XSession|XGet|XLaunch|XShow|XInput)
 name crt ^(_|(memset|memcpy|memmove|memcmp|memchr|strlen|strcmp|strncmp|stricmp|strcpy|strncpy|strcat|strchr|strrchr|strstr|sprintf|vsprintf|snprintf|sscanf|printf|atoi|atof|atol|strtol|strtod|strtoul|qsort|bsearch|malloc|free|calloc|realloc|frexp|ldexp|pow|sqrt|sinf?|cosf?|tanf?|atanf?|atan2f?|asinf?|acosf?|expf?|logf?|log10f?|fmodf?|floorf?|ceilf?|modff?|fabs|atexit|rand|srand|time|tolower|toupper|isalpha|isdigit|isspace|wcslen|wcscpy|wcscmp|wcsncpy|mbstowcs|wcstombs|swprintf|vswprintf|abort|exit|start|operator)(_|$))
+name crt ^Math_Double
 name stl ^(Std|std_)
 name compiler-eh ^EH_
 name pathengine ^(iPathEngine|cPathEngine|RemoveObstructedFragments|PathEngine)
