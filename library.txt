@@ -1,0 +1,76 @@
+# denut library classification spec (read by tracker/index.html; see library_ranges.md for evidence).
+# Functions are sorted by address and classified in this order:
+#   1. force  START END LIB   - everything in [START, END) is LIB, no exceptions.
+#   2. unknown/weak REGEX     - auto-generated or caller-derived names carry no evidence; class "?".
+#      name   LIB REGEX       - otherwise the first matching rule gives the class (LIB "game" = game code).
+#      anything else          - "game".
+#   3. block  START END LIB   - inside [START, END), "game" and "?" become LIB unless a keepgame REGEX matches.
+#   4. a remaining "?" takes its neighbours' library when the nearest anchors before and after agree, else "game".
+#      noanchor LIBS          - classes that never act as anchors.
+#      noabsorb START END     - a "?" inside this range always stays "game".
+# Ranges are [START, END) in hex. Regexes are case-sensitive JavaScript regexes.
+
+noanchor stl,compiler-eh,import
+
+# Static initializers (__dyninit, atexit) mix game and library globals, so unknowns there stay game.
+noabsorb 0x82CED3D8 0x82D021CC
+
+# Import thunks and the .embsec_ segments.
+force 0x82D021CC 0x82D59800 import
+
+# Contiguous library blocks (evidence in library_ranges.md).
+block 0x82634678 0x8264DC00 d3d
+block 0x8264DC00 0x8266A098 xaudio
+block 0x826D5CC0 0x826D9028 d3d
+block 0x826D9028 0x826EE000 xact
+block 0x826EE000 0x826FE440 xapi
+block 0x826FE440 0x827EF000 d3dx
+block 0x827EF000 0x8291ADC0 xgraphics
+block 0x8291ADC0 0x829FA1B8 havok
+block 0x82A03E60 0x82A05990 xapi
+block 0x82A05990 0x82A67AE0 xui
+block 0x82A67AE0 0x82B48640 xmv
+block 0x82B6E608 0x82BBF178 xts
+block 0x82BBF178 0x82BC32D0 fontcache
+block 0x82BC7E08 0x82BE9248 pathengine
+block 0x82BE9248 0x82BEADF0 xapi
+block 0x82BEADF0 0x82BF3C48 fontcache
+block 0x82C08000 0x82C29000 crt
+block 0x82C29000 0x82C2A400 xapi
+block 0x82C2A400 0x82C43000 havok
+block 0x82C68760 0x82CED3D8 pathengine
+
+# Game functions that sit inside a block.
+keepgame ^(HavokSystem_|AnimEventCursor|AnimPlayhead|RenderGraph)
+
+# Name rules, first match wins.
+name game ^XuiClass
+name havok ^hk
+name xui ^Xui
+name d3d ^(D3DDevice|Direct3D|D3D[A-Z][a-z]|Pix[A-Z_]|Vd[A-Z]|XGraphics|XG[A-Z][a-z])
+name d3dx ^(D3DX|XGPU|Preprocessor|Lexer|CompilerMessages|ShaderAsm|ShaderCompiler|ShaderDisasm|MicrocodeAsm|ImageFilter|Image_|PixelCodec|Dxt|png|jpeg|AssignKonstantRegisters|AtiSSM|XMVector)
+name xaudio ^(AudioSrc|XAudio|XMA)
+name xact ^(XACT|Xact)
+name x3daudio ^X3DAudio
+name xmv ^(WmvDec|WmaDec|Asf_|Brt[A-Z]|ColorConvert|Xmv|XMV)
+name xapi ^(Xapi|XFileCache|Lzx|Xam|Nt[A-Z]|Ke[A-Z]|Kf[A-Z]|Rtl[A-Z]|Ex[A-Z][a-z]|Ob[A-Z]|Mm[A-Z]|NetDll|XNet|XNotify|XMsg|Xex[A-Z]|XCompress|XContent|XUser|XOnline|XLive|XSession|XGet|XLaunch|XShow|XInput)
+name crt ^(_|(memset|memcpy|memmove|memcmp|memchr|strlen|strcmp|strncmp|stricmp|strcpy|strncpy|strcat|strchr|strrchr|strstr|sprintf|vsprintf|snprintf|sscanf|printf|atoi|atof|atol|strtol|strtod|strtoul|qsort|bsearch|malloc|free|calloc|realloc|frexp|ldexp|pow|sqrt|sinf?|cosf?|tanf?|atanf?|atan2f?|asinf?|acosf?|expf?|logf?|log10f?|fmodf?|floorf?|ceilf?|modff?|fabs|atexit|rand|srand|time|tolower|toupper|isalpha|isdigit|isspace|wcslen|wcscpy|wcscmp|wcsncpy|mbstowcs|wcstombs|swprintf|vswprintf|abort|exit|start|operator)(_|$))
+name stl ^(Std|std_)
+name compiler-eh ^EH_
+name pathengine ^(iPathEngine|cPathEngine|RemoveObstructedFragments|PathEngine)
+name d3dx ^(IL_|Jpeg|Bmp_|ImageWriter|ShaderCEmit|ShaderComment|CompilerArena|ColorGraph|RemoveUnnecessaryDependencies|ParseNode|SR_|InterferenceGraph|TextureFormat)
+name zlib ^(inflate|deflate|adler32|crc32|zcalloc|zcfree|huft_)
+name fontcache ^FontCache
+name xapi ^(XMem|Rtlp[A-Z]|XLockFree|XMP[A-Z]|xconfig_|WSA[A-Z]|Interlocked|XPhysical|XEnable|XSet|XQuery|XReset|XAutomation|XVoice|XStorage|XLiveUpdate|XMarketplace|XFriends|XPresence|XProfile|XLeaderboard|XUserStats)
+name xapi ^(HeapReAlloc|HeapAlloc|HeapFree|HeapCreate|MultiByteToWideChar|WideCharToMultiByte|GetLocalTime|GetSystemTime|GetModuleHandle|VirtualFree|VirtualAlloc|FreeLibrary|LoadLibrary|GetProcAddress|QueryPerformanceCounter|QueryPerformanceFrequency|HResultFromWin32|CreateFile|ReadFile|WriteFile|CloseHandle|GetFileSize|SetFilePointer|CreateEvent|SetEvent|ResetEvent|WaitForSingleObject|WaitForMultipleObjects|Sleep|GetTickCount|CreateThread|ResumeThread|SuspendThread|SetThreadPriority|GetExitCodeThread|ExitThread|GetCurrentProcessorNumber|InitializeCriticalSection|EnterCriticalSection|LeaveCriticalSection|DeleteCriticalSection|GetLastError|SetLastError|TlsAlloc|TlsGetValue|TlsSetValue|OutputDebugString|DebugBreak|FindFirstFile|FindNextFile|FindClose|FileTimeToSystemTime|SystemTimeToFileTime|GetDiskFreeSpace|GetOverlappedResult|SetEndOfFile|GetFileAttributes|SetFileAttributes|GetFileTime|CopyFile|CancelIo|CreateSemaphore|DuplicateHandle|GetProcessHeap|GetTimeZoneInformation|lstrcmp|lstrcmpi|XRegisterThreadNotifyRoutine|XCancelOverlapped|setsockopt|getsockopt|recvfrom|sendto|XGetVideoMode)(Ex|A|W|ExA|ExW)?(_|$)
+name crt ^(iswctype|write|FindHandlerForForeignException|CatchIt|BuildCatchObject|BuildCatchObjectHelper|CallCatchBlock|TypeMatch|FindHandler|eh|frexp|wcstoul|wcstol|wcstod|mbrtowc|towlower|towupper|wctomb|wcstombs|terminate|raise|doexit|longjmp|fopen|fclose|fread|fwrite|fseek|ftell|fgets|fprintf|fsetpos|fgetpos|xtoa|strtoxq|strnlen|wcsnlen|wcsncmp|log)(_|$)
+name pathengine ^(iMesh|cMesh|iMeshFederation|fastOpenNextElement|cStandardXMLInputStream|cTokenisedXMLInputStream|iShape|iAgent|iCollisionContext|iObstacleSet|iPath|cPath|iTerrain|iFaceVertex)
+name xui ^(Xur|XUIElement|XUI)
+name xmv ^(Wmv|FirFilter|WmfDecode|VideoEffect|FixedLut|Int32Array|Brt|XMedia2)
+name havok ^(ConstraintModifier|AgentSectorPtrs|ClassUpdateTracker|ValidatedClassNameRegistry)
+name xact ^WaveBankEntry
+name xts ^(XTS|Xts|TSTransportClient|TSConnection|TSService)
+
+# Auto-generated names (no evidence of owner) and caller-derived names.
+unknown ^(Class[0-9A-F]{8}|Group[0-9A-F]{8}|FnTable|Shared|UsesStr|Unreferenced|DataRef|Common_|EmptyFunction|j_|sub_|nullsub|Get(U8|U16|U32|32|F32|Ptr|Byte)|Set(32|U8|F32)|Object_)
+weak (_(util|shared|helper|callback|wrapper|thunk|vf\d+)(_|$))|^ReturnConst|^ReturnArg|^Set8_|^ReturnZero|^ReturnOne

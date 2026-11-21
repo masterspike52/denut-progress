@@ -12,7 +12,7 @@
   :root {
     --bg: #0f1115; --panel: #161a21; --panel2: #1d222b; --line: #2b313c;
     --fg: #e6eaf0; --muted: #8b94a3; --faint: #636c7a; --accent: #7aa2ff;
-    --decomp: #3fb76b; --named: #8d7cf0; --partial: #e0a33a; --ph: #4a5262;
+    --decomp: #3fb76b; --named: #8d7cf0; --partial: #e0a33a; --ph: #4a5262; --lib: #2c3644;
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
     color-scheme: dark;
@@ -21,13 +21,13 @@
     :root:not([data-theme="dark"]) {
       --bg: #f3f4f7; --panel: #ffffff; --panel2: #eceef3; --line: #d3d8e0;
       --fg: #1a1f28; --muted: #586172; --faint: #8a93a2; --accent: #2f5fd0;
-      --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
+      --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; --lib: #dde1e8; color-scheme: light;
     }
   }
   :root[data-theme="light"] {
     --bg: #f3f4f7; --panel: #ffffff; --panel2: #eceef3; --line: #d3d8e0;
     --fg: #1a1f28; --muted: #586172; --faint: #8a93a2; --accent: #2f5fd0;
-    --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; color-scheme: light;
+    --decomp: #2a9a55; --named: #6f5fd6; --partial: #c4861a; --ph: #b6bcc8; --lib: #dde1e8; color-scheme: light;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -133,7 +133,7 @@
 
   <details>
     <summary>How statuses are assigned</summary>
-    <p>Decompiled means the function is rewritten as readable C/C++ in the decomp (listed in <code>decompiled.txt</code>). Every other function is classified from its current IDB name. Placeholder means the name is one of the auto-naming families and says nothing about what the function is. Partial means the owner (class or subsystem) is real but the method part is a slot number, helper tag or address. Named is everything else.</p>
+    <p>Library means statically linked third-party code (XDK D3D/D3DX/xgraphics, XUI, XMV, XACT, XAudio, CRT, STL, Havok, PathEngine and others) that the decomp skips because the PC port replaces it; <code>library.txt</code> holds the ranges and name rules, and library functions are left out of every game-code percentage. Decompiled means the function is rewritten as readable C/C++ in the decomp (listed in <code>decompiled.txt</code>). Every other function is classified from its current IDB name. Placeholder means the name is one of the auto-naming families and says nothing about what the function is. Partial means the owner (class or subsystem) is real but the method part is a slot number, helper tag or address. Named is everything else.</p>
     <div class="rules">placeholder = ^(Group[0-9A-F]{8}|Class8[0-9A-F]{7}|SharedVf\d+|Unreferenced|DataRef_|UsesStr_|Common_(util|shared|helper)|FnTable8|MultiRef|(Get|Set)(U|S|F)?(8|16|32|64)_[0-9A-F]+$|sub_|nullsub_)
 partial     = not placeholder, and matches (8[0-9A-F]{7}|_vf\d+|_Slot\d+|_(util|helper|shared|wrapper|callback)$)
 named       = everything else</div>
@@ -145,7 +145,7 @@ named       = everything else</div>
       <li>In IDA, open the Functions window (Shift+F3), click inside it, press Ctrl+A, then Ctrl+C.</li>
       <li>Paste anywhere on this page, drop a saved list onto the map, or use <em>Open function list…</em>. This only changes your own view.</li>
       <li>To update the hosted page for everyone, save the same text as <code>functions.txt</code> next to <code>index.html</code> and upload both.</li>
-      <li>For decomp progress, copy <code>decomp/progress/decompiled.txt</code> next to <code>index.html</code> as well.</li>
+      <li>For decomp progress, copy <code>decomp/progress/decompiled.txt</code> and <code>decomp/progress/library.txt</code> next to <code>index.html</code> as well.</li>
     </ol>
     <p>Accepted formats: IDA Functions-window copy (name, segment, start, length…), or JSON objects with <code>addr</code>, <code>name</code> and <code>size</code>.</p>
   </details>
@@ -180,8 +180,11 @@ named       = everything else</div>
     { key: "D", label: "Decompiled", token: "--decomp" },
     { key: "N", label: "Named", token: "--named" },
     { key: "P", label: "Partial", token: "--partial" },
-    { key: "X", label: "Placeholder", token: "--ph" }
+    { key: "X", label: "Placeholder", token: "--ph" },
+    { key: "L", label: "Library", token: "--lib" }
   ];
+  const GAME_STATUS = STATUS.filter(s => s.key !== "L");
+  const emptyCounts = () => ({ D: 0, N: 0, P: 0, X: 0, L: 0 });
   const MOD_COLORS = ["#e0913a","#4fb3a9","#a9c23f","#e06c9f","#8d7cf0","#5aa0e6","#d2b43c","#6cc07a","#e07a5f","#b38be0","#3fb8d0","#d98ac0"];
 
   const $ = id => document.getElementById(id);
@@ -197,9 +200,64 @@ named       = everything else</div>
   let ROOT = null, stack = [], hidden = new Set();
   let rects = [], highlight = null, hoverRect = null;
   let DECOMP = new Set();
+  let LIBSPEC = null;
+  let LIB = new Map();
 
   const classifyName = n => PH.test(n) ? "X" : PART.test(n) ? "P" : "N";
-  const classify = f => DECOMP.has(f.addr) ? "D" : classifyName(f.name);
+  const classify = f => DECOMP.has(f.addr) ? "D" : f.lib ? "L" : classifyName(f.name);
+
+  // library.txt: the classification spec written in decomp/progress (format described at its top).
+  function parseLibrarySpec(text) {
+    const spec = { force: [], blocks: [], noabsorb: [], rules: [], unknown: [], keep: [], noAnchor: new Set(["stl", "compiler-eh", "import"]) };
+    const range = r => ({ s: parseInt(r[0], 16), e: parseInt(r[1], 16), lib: r[2] });
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const [kw, ...rest] = line.split(/\s+/);
+      try {
+        if (kw === "force") spec.force.push(range(rest));
+        else if (kw === "block") spec.blocks.push(range(rest));
+        else if (kw === "noabsorb") spec.noabsorb.push(range(rest));
+        else if (kw === "name") spec.rules.push({ lib: rest[0], re: new RegExp(rest.slice(1).join(" ")) });
+        else if (kw === "unknown" || kw === "weak") spec.unknown.push(new RegExp(rest.join(" ")));
+        else if (kw === "keepgame") spec.keep.push(new RegExp(rest.join(" ")));
+        else if (kw === "noanchor") rest.join(",").split(",").filter(Boolean).forEach(x => spec.noAnchor.add(x));
+      } catch (e) { /* a bad rule is skipped */ }
+    }
+    return spec.rules.length || spec.blocks.length ? spec : null;
+  }
+  const looksLikeLibrarySpec = text => /^\s*(block|force|name)\s+\S+\s+\S+/m.test(text) && /^\s*name\s/m.test(text);
+
+  // Mirrors the order in library.txt; funcs must be sorted by address. Returns addr -> library.
+  function classifyLibraries(funcs, spec) {
+    const map = new Map();
+    if (!spec || !funcs) return map;
+    const inRange = (list, a) => list.find(b => a >= b.s && a < b.e);
+    const own = funcs.map(f => {
+      const forced = inRange(spec.force, f.addr);
+      if (forced) return forced.lib;
+      if (f.libflag || (f.seg && f.seg !== ".text")) return "import";
+      let c = "game";
+      if (spec.unknown.some(r => r.test(f.name))) c = "?";
+      else { const rule = spec.rules.find(r => r.re.test(f.name)); if (rule) c = rule.lib; }
+      const blk = inRange(spec.blocks, f.addr);
+      if (!blk) return c;
+      if (c === "game" && spec.keep.some(r => r.test(f.name))) return "game";
+      return c === "game" || c === "?" ? blk.lib : c;
+    });
+    const anchor = k => k !== "?" && !spec.noAnchor.has(k);
+    const prev = new Array(own.length);
+    let p = "";
+    for (let i = 0; i < own.length; i++) { prev[i] = p; if (anchor(own[i])) p = own[i]; }
+    let next = "";
+    for (let i = own.length - 1; i >= 0; i--) {
+      let k = own[i];
+      if (k === "?") k = prev[i] && prev[i] === next && prev[i] !== "game" && !inRange(spec.noabsorb, funcs[i].addr) ? prev[i] : "game";
+      if (anchor(own[i])) next = own[i];
+      if (k !== "game") map.set(funcs[i].addr, k);
+    }
+    return map;
+  }
 
   // decompiled.txt: one "0xADDRESS name" line per decompiled function.
   function parseDecompiled(text) {
@@ -218,9 +276,9 @@ named       = everything else</div>
   // ---------- parsing ----------
   function parseList(text) {
     const out = [], seen = new Set();
-    const push = (addr, name, size) => {
+    const push = (addr, name, size, seg, libflag) => {
       if (!isFinite(addr) || !name || seen.has(addr)) return;
-      seen.add(addr); out.push({ addr, name, size: Math.max(0, size | 0) });
+      seen.add(addr); out.push({ addr, name, size: Math.max(0, size | 0), seg: seg || "", libflag: !!libflag });
     };
     const t = text.trim();
     if (t.startsWith("{") || t.startsWith("[")) {
@@ -240,7 +298,8 @@ named       = everything else</div>
     const re = /^(.+?)\s+(\.[\w$.]*)\s+([0-9A-Fa-f]{6,16})\s+([0-9A-Fa-f]{1,16})\b/;
     for (const line of t.split(/\r?\n/)) {
       const m = line.match(re);
-      if (m) push(parseInt(m[3], 16), m[1].trim(), parseInt(m[4], 16));
+      // In IDA's tab-separated copy, column 9 is the "L" (library) flag.
+      if (m) push(parseInt(m[3], 16), m[1].trim(), parseInt(m[4], 16), m[2], line.split("\t")[8] === "L");
     }
     return out;
   }
@@ -248,8 +307,9 @@ named       = everything else</div>
   // ---------- grouping ----------
   const firstTok = n => (n.replace(/^j_/, "").split("_")[0] || n);
   const block = (a, sz) => hex(Math.floor(a / sz) * sz);
-  function ownerGroup(n, a) {
+  function ownerGroup(n, a, lib) {
     let m;
+    if (lib) return ["Library · " + lib, firstTok(n)];
     if ((m = n.match(/^Class(8[0-9A-F]{7})/))) return ["Unidentified classes", "Class" + m[1]];
     if ((m = n.match(/^Group(8[0-9A-F]{7})/))) return ["Groups", "Group" + m[1]];
     if ((m = n.match(/^SharedVf(\d+)/))) return ["Shared vfuncs", "slot " + m[1]];
@@ -278,7 +338,7 @@ named       = everything else</div>
 
   function finalize(node) {
     if (!node.kids) return node;
-    node.v = 0; node.n = 0; node.c = { D: 0, N: 0, P: 0, X: 0 }; node.b = { D: 0, N: 0, P: 0, X: 0 };
+    node.v = 0; node.n = 0; node.c = emptyCounts(); node.b = emptyCounts();
     for (const k of node.kids) {
       k.parent = node; finalize(k);
       node.v += k.v;
@@ -291,7 +351,7 @@ named       = everything else</div>
   function buildFromFunctions(funcs) {
     const root = { name: "All", kids: [], map: new Map() };
     for (const f of funcs) {
-      const [m, o] = groupBy === "addr" ? addrGroup(f.addr) : ownerGroup(f.name, f.addr);
+      const [m, o] = groupBy === "addr" ? addrGroup(f.addr) : ownerGroup(f.name, f.addr, f.s === "L" ? f.lib : null);
       let mod = root.map.get(m);
       if (!mod) { mod = { name: m, kids: [], map: new Map() }; root.map.set(m, mod); root.kids.push(mod); }
       let own = mod.map.get(o);
@@ -431,26 +491,31 @@ named       = everything else</div>
 
   // ---------- header, chips, modules ----------
   function pctStr(n, d) { return d ? (100 * n / d).toFixed(n / d < 0.01 ? 3 : 2) + "%" : "0%"; }
+  // Percentages cover game code only; library functions are counted separately.
   function renderHeader() {
     const c = ROOT.c, b = ROOT.b, n = ROOT.n;
-    const totalBytes = b.D + b.N + b.P + b.X;
-    const useBytes = MODE === "functions" && totalBytes > 0;
-    const base = useBytes ? totalBytes : n;
+    const gameN = n - c.L;
+    const gameBytes = b.D + b.N + b.P + b.X;
+    const useBytes = MODE === "functions" && gameBytes > 0;
+    const base = useBytes ? gameBytes : gameN;
     const val = s => useBytes ? b[s] : c[s];
     const bar = $("mainbar");
     bar.innerHTML = "";
-    STATUS.forEach(s => {
+    GAME_STATUS.forEach(s => {
       const d = document.createElement("div");
-      d.style.width = (100 * val(s.key) / base) + "%";
+      d.style.width = (100 * val(s.key) / (base || 1)) + "%";
       d.style.background = `var(${s.token})`;
       bar.appendChild(d);
     });
+    const libNote = c.L ? ` Library code (skipped): ${fmt(c.L)} functions, ${fmt(b.L)} bytes.` : "";
     $("summary").textContent = useBytes
-      ? `${fmt(n)} functions, ${fmt(totalBytes)} bytes. Decompiled ${pctStr(b.D, totalBytes)} of the code (${fmt(c.D)} functions), named ${pctStr(b.D + b.N, totalBytes)}.`
+      ? `Game code decompiled ${fmt(c.D)}/${fmt(gameN)} functions (${pctStr(b.D, gameBytes)} of its ${fmt(gameBytes)} bytes), named ${pctStr(b.D + b.N, gameBytes)}.${libNote}`
       : `${fmt(n)} functions. Named ${pctStr(c.N, n)} of functions. Snapshot ${SNAPSHOT.date}.`;
-    $("chips").innerHTML = STATUS.map(s => `
+    $("chips").innerHTML = GAME_STATUS.map(s => `
       <span class="chip"><span class="dot" style="background:var(${s.token})"></span>${s.label}
-      <small>${fmt(c[s.key])} · ${pctStr(val(s.key), base)}</small></span>`).join("");
+      <small>${fmt(c[s.key])} · ${pctStr(val(s.key), base)}</small></span>`).join("") +
+      (c.L ? `<span class="chip" title="Statically linked library code, replaced natively in the port"><span class="dot" style="background:var(--lib)"></span>Library
+      <small>${fmt(c.L)} · ${pctStr(c.L, n)} of all</small></span>` : "");
   }
 
   function renderMods() {
@@ -512,16 +577,18 @@ named       = everything else</div>
       html = `<b>${escapeHtml(n.f.name)}</b>
         <div class="row">${hex(n.f.addr)} · ${fmt(n.f.size)} bytes</div>
         <div class="row">${escapeHtml(moduleOf(n).name)} › ${escapeHtml(n.parent.name)}</div>
-        <span class="pill" style="background:var(${s.token})">${s.label}</span>`;
+        ${n.f.lib ? `<div class="row">library: ${escapeHtml(n.f.lib)}</div>` : ""}
+        <span class="pill" style="background:var(${s.token})${n.s === "L" ? ";color:var(--fg)" : ""}">${s.label}</span>`;
     } else if (!n.kids) {
       const s = STATUS.find(x => x.key === n.s);
       html = `<b>${n.region}</b><div class="row">${fmt(n.count)} ${s.label.toLowerCase()} functions</div>
         <div class="row">Per-function boxes appear once a function list is loaded.</div>`;
     } else {
-      const bytes = n.b ? n.b.D + n.b.N + n.b.P + n.b.X : 0;
+      const bytes = n.b ? n.b.D + n.b.N + n.b.P + n.b.X + n.b.L : 0;
+      const g = n.n - n.c.L;
       html = `<b>${escapeHtml(n.range || n.name)}</b>
-        <div class="row">${fmt(n.n)} functions${bytes ? " · " + fmt(bytes) + " bytes" : ""}</div>
-        <div class="row">decompiled ${pctStr(n.c.D, n.n)} · named ${pctStr(n.c.N, n.n)} · partial ${pctStr(n.c.P, n.n)} · placeholder ${pctStr(n.c.X, n.n)}</div>`;
+        <div class="row">${fmt(n.n)} functions${bytes ? " · " + fmt(bytes) + " bytes" : ""}${n.c.L ? " · " + fmt(n.c.L) + " library" : ""}</div>
+        ${g ? `<div class="row">game code: decompiled ${pctStr(n.c.D, g)} · named ${pctStr(n.c.N, g)} · partial ${pctStr(n.c.P, g)} · placeholder ${pctStr(n.c.X, g)}</div>` : ""}`;
     }
     tip.innerHTML = html; tip.hidden = false;
     const tw = tip.offsetWidth, th = tip.offsetHeight;
@@ -612,8 +679,9 @@ named       = everything else</div>
   }
 
   function loadFunctions(list, note) {
-    list.forEach(f => f.s = classify(f));
     list.sort((a, b) => a.addr - b.addr);
+    LIB = classifyLibraries(list, LIBSPEC);
+    list.forEach(f => { f.lib = LIB.get(f.addr) || null; f.s = classify(f); });
     FUNCS = list; MODE = "functions";
     const n = $("notice");
     if (note) { n.innerHTML = note; n.hidden = false; } else n.hidden = true;
@@ -628,7 +696,26 @@ named       = everything else</div>
     }
   }
 
+  function applyLibrarySpec(spec) {
+    LIBSPEC = spec;
+    if (MODE === "functions") {
+      LIB = classifyLibraries(FUNCS, LIBSPEC);
+      FUNCS.forEach(f => { f.lib = LIB.get(f.addr) || null; f.s = classify(f); });
+      rebuild();
+    }
+  }
+
   function tryText(text, label) {
+    if (looksLikeLibrarySpec(text)) {
+      const spec = parseLibrarySpec(text);
+      if (spec) {
+        applyLibrarySpec(spec);
+        $("notice").innerHTML = `<strong>Loaded the library spec from ${escapeHtml(label)}.</strong> This view is local to your browser.` +
+          (MODE === "functions" ? ` ${fmt(LIB.size)} functions are library code.` : " Load a function list too to see it on the map.");
+        $("notice").hidden = false;
+        return;
+      }
+    }
     if (looksLikeDecompiledList(text)) {
       applyDecompiled(parseDecompiled(text));
       $("notice").innerHTML = `<strong>Loaded ${fmt(DECOMP.size)} decompiled functions from ${escapeHtml(label)}.</strong> This view is local to your browser.` +
@@ -684,8 +771,9 @@ named       = everything else</div>
   resize();
   if (!local) {
     const getText = name => fetch(name, { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => "");
-    Promise.all([getText("functions.txt"), getText("decompiled.txt")]).then(([funcs, decomp]) => {
+    Promise.all([getText("functions.txt"), getText("decompiled.txt"), getText("library.txt")]).then(([funcs, decomp, lib]) => {
       if (decomp) DECOMP = parseDecompiled(decomp);
+      if (lib) LIBSPEC = parseLibrarySpec(lib);
       const list = parseList(funcs);
       if (list.length >= 10) loadFunctions(list);
     });
